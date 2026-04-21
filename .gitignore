@@ -1,1 +1,6 @@
 /ref
+/.venv/
+/.ab-worktrees/
+__pycache__/
+*.pyc
+*.pyo
