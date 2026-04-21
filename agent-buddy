@@ -12,5 +12,6 @@ else
     exit 1
 fi
 
-# Run the Python GUI
-exec "$SCRIPT_DIR/agent_buddy.py" "$@"
+# Run the Python GUI package
+export PYTHONPATH="$SCRIPT_DIR"
+exec "$SCRIPT_DIR/.venv/bin/python3" -m agent_buddy "$@"
