@@ -1,10 +1,10 @@
 import re
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QListWidget, QPushButton, QMessageBox, QTextEdit, QLineEdit,
-    QSplitter, QDialog
+    QSplitter, QDialog, QLabel, QTabWidget
 )
-from PyQt6.QtCore import Qt, QProcess
+from PyQt6.QtCore import Qt, QProcess, QEvent
 
 from agent_buddy.core.session import AgentSession
 from agent_buddy.core.workspace import create_worktree, remove_worktree
@@ -19,69 +19,163 @@ class AgentBuddyWindow(QMainWindow):
         self.current_session = None
 
         self._setup_ui()
+        QApplication.instance().installEventFilter(self)
 
     def _setup_ui(self):
-        main_widget = QWidget()
-        self.setCentralWidget(main_widget)
-        main_layout = QHBoxLayout(main_widget)
-
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        main_layout.addWidget(splitter)
-
-        # Left Panel (Session List)
-        left_widget = QWidget()
-        left_layout = QVBoxLayout(left_widget)
-        
-        self.session_list = QListWidget()
-        self.session_list.currentItemChanged.connect(self.on_session_selected)
-        left_layout.addWidget(self.session_list)
-
-        btn_layout = QHBoxLayout()
-        self.btn_create = QPushButton("Create Session")
-        self.btn_create.clicked.connect(self.create_session)
-        self.btn_kill = QPushButton("Kill Session")
-        self.btn_kill.clicked.connect(self.kill_session)
-        btn_layout.addWidget(self.btn_create)
-        btn_layout.addWidget(self.btn_kill)
-        left_layout.addLayout(btn_layout)
-
-        splitter.addWidget(left_widget)
-
-        # Right Panel (Terminal / Chat)
-        right_widget = QWidget()
-        right_layout = QVBoxLayout(right_widget)
-        
-        self.terminal_output = QTextEdit()
-        self.terminal_output.setReadOnly(True)
-        self.terminal_output.setStyleSheet("""
-            QTextEdit {
-                background-color: #1e1e1e;
-                color: #d4d4d4;
-                font-family: 'Courier New', Courier, monospace;
-                font-size: 14px;
-                padding: 10px;
-                border: none;
+        # Global stylesheet (Dracula / Catppuccin Macchiato style)
+        self.setStyleSheet("""
+            QMainWindow, QWidget {
+                background-color: #1e1e2e;
+                color: #cdd6f4;
+                font-family: 'Cascadia Code', 'Courier New', monospace;
             }
-        """)
-        right_layout.addWidget(self.terminal_output)
-
-        self.input_field = QLineEdit()
-        self.input_field.setPlaceholderText("Type your message here and press Enter...")
-        self.input_field.setStyleSheet("""
-            QLineEdit {
-                background-color: #2d2d2d;
-                color: #ffffff;
-                font-size: 14px;
-                padding: 8px;
-                border: 1px solid #3d3d3d;
+            QSplitter::handle {
+                background-color: #313244;
+            }
+            QMessageBox {
+                background-color: #181825;
+            }
+            QMessageBox QPushButton {
+                background-color: #313244;
+                padding: 6px 12px;
                 border-radius: 4px;
             }
         """)
-        self.input_field.returnPressed.connect(self.send_input)
-        right_layout.addWidget(self.input_field)
 
+        main_widget = QWidget()
+        self.setCentralWidget(main_widget)
+        main_layout = QVBoxLayout(main_widget)
+        main_layout.setContentsMargins(15, 15, 15, 15)
+
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        main_layout.addWidget(splitter, stretch=1)
+
+        # --- Left Panel ---
+        left_widget = QWidget()
+        left_layout = QVBoxLayout(left_widget)
+        left_layout.setContentsMargins(0, 0, 10, 0)
+        
+        # Header
+        header_layout = QHBoxLayout()
+        lbl_instances = QLabel("Instances")
+        lbl_instances.setStyleSheet("background-color: #b4befe; color: #11111b; padding: 4px 10px; font-weight: bold; border-radius: 4px;")
+        lbl_auto = QLabel("auto-yes")
+        lbl_auto.setStyleSheet("background-color: #cdd6f4; color: #11111b; padding: 4px 10px; font-weight: bold; border-radius: 4px;")
+        header_layout.addWidget(lbl_instances)
+        header_layout.addStretch()
+        header_layout.addWidget(lbl_auto)
+        left_layout.addLayout(header_layout)
+        
+        self.session_list = QListWidget()
+        self.session_list.setStyleSheet("""
+            QListWidget {
+                background-color: transparent;
+                border: none;
+                outline: none;
+                margin-top: 15px;
+            }
+            QListWidget::item {
+                padding: 12px;
+                color: #a6adc8;
+            }
+            QListWidget::item:selected {
+                background-color: #f5e0dc;
+                color: #11111b;
+                border-radius: 6px;
+            }
+        """)
+        self.session_list.currentItemChanged.connect(self.on_session_selected)
+        left_layout.addWidget(self.session_list)
+        splitter.addWidget(left_widget)
+
+        # --- Right Panel ---
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
+        right_layout.setContentsMargins(10, 0, 0, 0)
+        
+        self.tabs = QTabWidget()
+        self.tabs.setStyleSheet("""
+            QTabWidget::pane {
+                border: 1px solid #cba6f7;
+                border-radius: 6px;
+                background-color: #181825;
+            }
+            QTabBar::tab {
+                background: transparent;
+                color: #a6adc8;
+                padding: 8px 30px;
+                margin-bottom: -1px;
+            }
+            QTabBar::tab:selected {
+                color: #cba6f7;
+                border-bottom: 2px solid #cba6f7;
+            }
+        """)
+        
+        self.terminal_output = QTextEdit()
+        self.terminal_output.setReadOnly(True)
+        self.terminal_output.setStyleSheet("background-color: transparent; color: #cdd6f4; border: none; padding: 15px;")
+        
+        self.diff_output = QTextEdit()
+        self.diff_output.setReadOnly(True)
+        self.diff_output.setStyleSheet("background-color: transparent; color: #cdd6f4; border: none; padding: 15px;")
+        
+        self.tabs.addTab(self.terminal_output, "Preview")
+        self.tabs.addTab(self.diff_output, "Diff")
+        right_layout.addWidget(self.tabs, stretch=1)
+
+        # Input Area
+        input_layout = QHBoxLayout()
+        prompt_lbl = QLabel("> ")
+        prompt_lbl.setStyleSheet("color: #a6adc8; font-weight: bold; font-size: 16px;")
+        self.input_field = QLineEdit()
+        self.input_field.setPlaceholderText("? for shortcuts")
+        self.input_field.setStyleSheet("""
+            QLineEdit {
+                background-color: transparent;
+                color: #cdd6f4;
+                border: 1px solid #45475a;
+                border-radius: 4px;
+                padding: 10px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #cba6f7;
+            }
+        """)
+        self.input_field.returnPressed.connect(self.send_input)
+        input_layout.addWidget(prompt_lbl)
+        input_layout.addWidget(self.input_field)
+        right_layout.addLayout(input_layout)
+        
         splitter.addWidget(right_widget)
-        splitter.setSizes([250, 750])
+        splitter.setSizes([350, 650])
+
+        # --- Bottom Bar ---
+        bottom_bar = QLabel("&nbsp;&nbsp;<span style='color:#a6e3a1'>n</span> new &nbsp;&nbsp;<span style='color:#f38ba8'>d</span> kill &nbsp;&nbsp;<span style='color:#89b4fa'>~/o</span> open &nbsp;&nbsp;<span style='color:#cba6f7'>s</span> submit PR &nbsp;&nbsp;<span style='color:#89b4fa'>c</span> checkout &nbsp;&nbsp;<span style='color:#bac2de'>tab</span> switch tab &nbsp;&nbsp;<span style='color:#bac2de'>q</span> quit ")
+        bottom_bar.setTextFormat(Qt.TextFormat.RichText)
+        bottom_bar.setStyleSheet("padding-top: 15px; color: #6c7086; font-size: 13px;")
+        main_layout.addWidget(bottom_bar)
+
+    def eventFilter(self, obj, event):
+        # Handle global keyboard shortcuts when the input field is not focused
+        if event.type() == QEvent.Type.KeyPress:
+            if self.isActiveWindow():
+                focus_widget = QApplication.focusWidget()
+                if not isinstance(focus_widget, QLineEdit) and not isinstance(focus_widget, QTextEdit):
+                    if event.key() == Qt.Key.Key_N:
+                        self.create_session()
+                        return True
+                    elif event.key() == Qt.Key.Key_D:
+                        self.kill_session()
+                        return True
+                    elif event.key() == Qt.Key.Key_Q:
+                        self.close()
+                        return True
+                    elif event.key() == Qt.Key.Key_Tab:
+                        current_tab = self.tabs.currentIndex()
+                        self.tabs.setCurrentIndex((current_tab + 1) % self.tabs.count())
+                        return True
+        return super().eventFilter(obj, event)
 
     def create_session(self):
         dialog = CreateSessionDialog(self)
@@ -116,16 +210,19 @@ class AgentBuddyWindow(QMainWindow):
         
         process.start()
 
-        self.session_list.addItem(name)
-        items = self.session_list.findItems(name, Qt.MatchFlag.MatchExactly)
-        if items:
-            self.session_list.setCurrentItem(items[0])
+        count = self.session_list.count() + 1
+        formatted_text = f"{count}. {name}"
+        from PyQt6.QtWidgets import QListWidgetItem
+        item = QListWidgetItem(formatted_text)
+        item.setData(Qt.ItemDataRole.UserRole, name)
+        self.session_list.addItem(item)
+        self.session_list.setCurrentItem(item)
 
     def kill_session(self):
         current_item = self.session_list.currentItem()
         if not current_item:
             return
-        name = current_item.text()
+        name = current_item.data(Qt.ItemDataRole.UserRole)
         
         reply = QMessageBox.question(self, "Confirm Kill", f"Are you sure you want to kill session '{name}'?",
                                      QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
@@ -147,11 +244,11 @@ class AgentBuddyWindow(QMainWindow):
             self.current_session = None
             self.terminal_output.clear()
             return
-        name = current.text()
+        name = current.data(Qt.ItemDataRole.UserRole)
         self.current_session = name
         session = self.sessions.get(name)
         if session:
-            self.terminal_output.setPlainText(session.output_buffer)
+            self.terminal_output.setPlainText(session.get_display())
             self.terminal_output.verticalScrollBar().setValue(self.terminal_output.verticalScrollBar().maximum())
 
     def on_process_output(self, session_name):
@@ -159,36 +256,44 @@ class AgentBuddyWindow(QMainWindow):
         if not session:
             return
         
-        data = session.process.readAllStandardOutput().data().decode("utf-8", errors="replace")
+        raw_data = session.process.readAllStandardOutput().data()
         
-        # Remove simple ANSI escape codes for basic display
-        ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-        data = ansi_escape.sub('', data)
-        
-        session.output_buffer += data
-        
-        if self.current_session == session_name:
-            scrollbar = self.terminal_output.verticalScrollBar()
-            at_bottom = scrollbar.value() == scrollbar.maximum()
+        # Auto-reply to common terminal capability queries to unblock TUI apps
+        if b"\x1b[6n" in raw_data:
+            session.process.write(b"\x1b[1;1R")
+        if b"\x1b[c" in raw_data or b"\x1b[>c" in raw_data:
+            session.process.write(b"\x1b[?1;2c")
+        if b"\x1b]10;?" in raw_data:
+            session.process.write(b"\x1b]10;rgb:0000/0000/0000\x1b\\")
+        if b"\x1b]11;?" in raw_data:
+            session.process.write(b"\x1b]11;rgb:ffff/ffff/ffff\x1b\\")
             
-            cursor = self.terminal_output.textCursor()
-            cursor.movePosition(cursor.MoveOperation.End)
-            self.terminal_output.setTextCursor(cursor)
-            self.terminal_output.insertPlainText(data)
-            
-            if at_bottom:
-                scrollbar.setValue(scrollbar.maximum())
+        data = raw_data.decode("utf-8", errors="replace")
+        session.feed(data)
+        
+        try:
+            if self.current_session == session_name:
+                scrollbar = self.terminal_output.verticalScrollBar()
+                at_bottom = scrollbar.value() == scrollbar.maximum()
+                
+                self.terminal_output.setPlainText(session.get_display())
+                
+                if at_bottom:
+                    scrollbar.setValue(scrollbar.maximum())
+        except RuntimeError:
+            pass # Widget deleted during app teardown
 
     def on_process_finished(self, session_name):
         session = self.sessions.get(session_name)
         if session:
-            msg = "\n[Process finished]\n"
-            session.output_buffer += msg
-            if self.current_session == session_name:
-                cursor = self.terminal_output.textCursor()
-                cursor.movePosition(cursor.MoveOperation.End)
-                self.terminal_output.setTextCursor(cursor)
-                self.terminal_output.insertPlainText(msg)
+            session.feed("\n[Process finished]\n")
+            try:
+                if self.current_session == session_name:
+                    self.terminal_output.setPlainText(session.get_display())
+                    scrollbar = self.terminal_output.verticalScrollBar()
+                    scrollbar.setValue(scrollbar.maximum())
+            except RuntimeError:
+                pass # Widget deleted during app teardown
 
     def send_input(self):
         text = self.input_field.text()
@@ -199,12 +304,5 @@ class AgentBuddyWindow(QMainWindow):
             
         session = self.sessions.get(self.current_session)
         if session and session.process.state() == QProcess.ProcessState.Running:
-            echo_msg = f"\n> {text}\n"
-            session.output_buffer += echo_msg
-            
-            cursor = self.terminal_output.textCursor()
-            cursor.movePosition(cursor.MoveOperation.End)
-            self.terminal_output.setTextCursor(cursor)
-            self.terminal_output.insertPlainText(echo_msg)
-            
-            session.process.write((text + "\n").encode("utf-8"))
+            # Send \r instead of \n because TUI applications in raw mode expect Carriage Return
+            session.process.write((text + "\r").encode("utf-8"))
