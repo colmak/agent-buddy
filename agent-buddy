@@ -1,0 +1,16 @@
+#!/bin/bash
+# Launcher for Agent Buddy GUI
+
+# Get the directory of this script
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Activate the virtual environment
+if [ -f "$SCRIPT_DIR/.venv/bin/activate" ]; then
+    source "$SCRIPT_DIR/.venv/bin/activate"
+else
+    echo "Virtual environment not found. Please ensure it's set up in $SCRIPT_DIR/.venv"
+    exit 1
+fi
+
+# Run the Python GUI
+exec "$SCRIPT_DIR/agent_buddy.py" "$@"
